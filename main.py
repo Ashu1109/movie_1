@@ -60,44 +60,63 @@ def download_file(url, output_path):
         logger.info(f"Downloading file from {url} to {output_path}")
         response = requests.get(url, stream=True, timeout=30)
         response.raise_for_status()  # Raise exception for HTTP errors
-        
-        content_length = response.headers.get('content-length')
+
+        content_length = response.headers.get("content-length")
         if content_length is None:
             logger.warning(f"Content-Length header missing for {url}")
         else:
             logger.info(f"Expected file size: {content_length} bytes")
-        
+
         with open(output_path, "wb") as f:
             downloaded_size = 0
             for chunk in response.iter_content(chunk_size=8192):
                 if chunk:  # Filter out keep-alive chunks
                     f.write(chunk)
                     downloaded_size += len(chunk)
-        
+
         # Verify file was downloaded and has content
         if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
             actual_size = os.path.getsize(output_path)
             logger.info(f"Downloaded file size: {actual_size} bytes")
-            
+
             # Verify file size matches content-length if available
             if content_length and int(content_length) > 0:
-                if abs(int(content_length) - actual_size) > 100:  # Allow small difference
-                    logger.warning(f"File size mismatch: expected {content_length}, got {actual_size}")
-            
+                if (
+                    abs(int(content_length) - actual_size) > 100
+                ):  # Allow small difference
+                    logger.warning(
+                        f"File size mismatch: expected {content_length}, got {actual_size}"
+                    )
+
             # Basic validation for video files
-            if output_path.endswith(('.mp4', '.avi', '.mov', '.mkv')):
+            if output_path.endswith((".mp4", ".avi", ".mov", ".mkv")):
                 try:
                     import subprocess
+
                     # Use ffprobe to check if file is a valid video
-                    cmd = ['ffprobe', '-v', 'error', '-select_streams', 'v:0', 
-                           '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', output_path]
+                    cmd = [
+                        "ffprobe",
+                        "-v",
+                        "error",
+                        "-select_streams",
+                        "v:0",
+                        "-show_entries",
+                        "stream=codec_type",
+                        "-of",
+                        "csv=p=0",
+                        output_path,
+                    ]
                     result = subprocess.run(cmd, capture_output=True, text=True)
-                    if 'video' not in result.stdout.strip():
-                        logger.error(f"Downloaded file is not a valid video: {output_path}")
+                    if "video" not in result.stdout.strip():
+                        logger.error(
+                            f"Downloaded file is not a valid video: {output_path}"
+                        )
                         return False
                 except Exception as e:
-                    logger.warning(f"Could not validate video file {output_path}: {str(e)}")
-            
+                    logger.warning(
+                        f"Could not validate video file {output_path}: {str(e)}"
+                    )
+
             return True
         else:
             logger.error(f"Downloaded file is empty or does not exist: {output_path}")
@@ -252,7 +271,9 @@ async def merge_videos(
         video_paths = []
         for i, video_url in enumerate(merge_data.video_urls):
             video_path = os.path.join(request_temp_dir, f"video_{i}.mp4")
-            logger.info(f"Downloading video {i+1}/{len(merge_data.video_urls)} from {video_url}")
+            logger.info(
+                f"Downloading video {i+1}/{len(merge_data.video_urls)} from {video_url}"
+            )
             if download_file(video_url, video_path):
                 video_paths.append(video_path)
             else:
@@ -262,7 +283,7 @@ async def merge_videos(
         if not video_paths:
             logger.error("No videos were successfully downloaded")
             return {"error": "No videos were successfully downloaded"}
-        
+
         # Verify all video files exist and have content
         for i, path in enumerate(video_paths):
             if not os.path.exists(path) or os.path.getsize(path) == 0:
@@ -289,16 +310,22 @@ async def merge_videos(
             if not video_clips:
                 logger.error("No valid video clips to concatenate")
                 return {"error": "No valid video clips to concatenate"}
-                
+
             logger.info(f"Concatenating {len(video_clips)} video clips")
             final_clip = concatenate_videoclips(video_clips)
-            
+
             # Validate the final clip
-            if final_clip.duration <= 0 or final_clip.size[0] <= 0 or final_clip.size[1] <= 0:
+            if (
+                final_clip.duration <= 0
+                or final_clip.size[0] <= 0
+                or final_clip.size[1] <= 0
+            ):
                 logger.error("Concatenated clip has invalid dimensions or duration")
                 return {"error": "Failed to create valid concatenated video"}
-                
-            logger.info(f"Successfully created concatenated clip with duration {final_clip.duration}s")
+
+            logger.info(
+                f"Successfully created concatenated clip with duration {final_clip.duration}s"
+            )
         except Exception as e:
             logger.error(f"Error concatenating video clips: {str(e)}")
             return {"error": f"Error concatenating video clips: {str(e)}"}
@@ -310,38 +337,53 @@ async def merge_videos(
         if merge_data.background_audio_url:
             try:
                 bg_audio_path = os.path.join(request_temp_dir, "background.mp3")
-                logger.info(f"Downloading background audio from {merge_data.background_audio_url}")
+                logger.info(
+                    f"Downloading background audio from {merge_data.background_audio_url}"
+                )
                 if download_file(merge_data.background_audio_url, bg_audio_path):
                     # Verify audio file
-                    if not os.path.exists(bg_audio_path) or os.path.getsize(bg_audio_path) == 0:
+                    if (
+                        not os.path.exists(bg_audio_path)
+                        or os.path.getsize(bg_audio_path) == 0
+                    ):
                         logger.error(f"Background audio file is missing or empty")
                         return {"error": "Background audio file is missing or empty"}
-                    
+
                     logger.info(f"Loading background audio from {bg_audio_path}")
                     bg_audio = AudioFileClip(bg_audio_path)
-                    
+
                     # Validate audio clip
                     if bg_audio.duration <= 0:
-                        logger.error(f"Invalid background audio duration: {bg_audio.duration}")
+                        logger.error(
+                            f"Invalid background audio duration: {bg_audio.duration}"
+                        )
                         return {"error": "Background audio has invalid duration"}
-                    
-                    logger.info(f"Background audio duration: {bg_audio.duration}s, video duration: {final_clip.duration}s")
-                    
+
+                    logger.info(
+                        f"Background audio duration: {bg_audio.duration}s, video duration: {final_clip.duration}s"
+                    )
+
                     # Loop background audio if it's shorter than the final video
                     if bg_audio.duration < final_clip.duration:
                         logger.info(f"Looping background audio to match video duration")
                         bg_audio = bg_audio.loop(duration=final_clip.duration)
                     else:
                         # Trim background audio if it's longer than the final video
-                        logger.info(f"Trimming background audio to match video duration")
+                        logger.info(
+                            f"Trimming background audio to match video duration"
+                        )
                         bg_audio = bg_audio.subclip(0, final_clip.duration)
 
                     # Set volume for background audio
-                    logger.info(f"Setting background audio volume to {merge_data.background_volume}")
+                    logger.info(
+                        f"Setting background audio volume to {merge_data.background_volume}"
+                    )
                     bg_audio = bg_audio.volumex(merge_data.background_volume)
                     audio_tracks.append(bg_audio)
                 else:
-                    logger.error(f"Failed to download background audio from {merge_data.background_audio_url}")
+                    logger.error(
+                        f"Failed to download background audio from {merge_data.background_audio_url}"
+                    )
                     return {"error": "Failed to download background audio"}
             except Exception as e:
                 logger.error(f"Error processing background audio: {str(e)}")
@@ -382,14 +424,23 @@ async def merge_videos(
             return {"error": "Output directory is not writable"}
 
         try:
-            logger.info(f"Writing final video to {output_path} with codec libx264 and audio codec aac")
+            logger.info(
+                f"Writing final video to {output_path} with codec libx264 and audio codec aac"
+            )
+
             # Add progress logging callback
             def write_log(t):
                 logger.info(f"Writing video: {int(t*100)}% complete")
-                
-            final_clip.write_videofile(output_path, codec="libx264", audio_codec="aac", 
-                                     logger=None, verbose=False, progress_bar=False, 
-                                     callback=write_log)
+
+            final_clip.write_videofile(
+                output_path,
+                codec="libx264",
+                audio_codec="aac",
+                logger=None,
+                verbose=False,
+                progress_bar=False,
+                callback=write_log,
+            )
             logger.info(f"Successfully wrote video file to: {output_path}")
 
             # Verify file was created
@@ -533,53 +584,6 @@ async def merge_videos(
                 logger.error(f"Error uploading to Google Drive: {str(e)}")
                 drive_upload_result = {"error": str(e)}
 
-        # Create a unique filename for the permanent copy
-        permanent_filename = f"permanent_copy_{request_id}.mp4"
-        permanent_output_path = os.path.join(OUTPUT_DIR, permanent_filename)
-
-        # Create the permanent copy immediately after the main file is created
-        logger.info(f"Creating permanent copy at: {permanent_output_path}")
-        try:
-            shutil.copy2(output_path, permanent_output_path)
-            logger.info(
-                f"Permanent copy created successfully at: {permanent_output_path}"
-            )
-        except Exception as copy_error:
-            logger.error(f"Error creating permanent copy: {str(copy_error)}")
-            permanent_output_path = None  # Mark as not available
-
-        # Return the video as a downloadable file
-        def iterfile():
-            # Verify file exists before streaming
-            if not os.path.exists(output_path):
-                logger.error(f"File does not exist before streaming: {output_path}")
-                # Try to recover from permanent copy if available
-                if permanent_output_path and os.path.exists(permanent_output_path):
-                    logger.info(
-                        f"Recovering output file from permanent copy: {permanent_output_path}"
-                    )
-                    try:
-                        shutil.copy2(permanent_output_path, output_path)
-                        logger.info(f"Successfully recovered file from permanent copy")
-                    except Exception as copy_error:
-                        logger.error(f"Failed to recover file: {str(copy_error)}")
-                        yield b"Error: File was deleted before streaming could begin"
-                        return
-                else:
-                    logger.error("No permanent copy available for recovery")
-                    yield b"Error: File was deleted before streaming could begin"
-                    return
-
-            logger.info(f"Streaming file: {output_path}")
-            try:
-                with open(output_path, "rb") as file:
-                    yield from file
-                logger.info(f"Finished streaming file: {output_path}")
-            except Exception as e:
-                logger.error(f"Error streaming file: {str(e)}")
-
-            # Always clean up temporary files and the output file AFTER streaming is complete
-            # Clean up all files if upload_to_drive was True, otherwise just clean specific files
             if merge_data.upload_to_drive:
                 logger.info(
                     "Upload was requested, cleaning up all temp and output files"
@@ -592,30 +596,6 @@ async def merge_videos(
                 if os.path.exists(permanent_output_path):
                     files_to_clean.append(permanent_output_path)
                 background_tasks.add_task(cleanup_files, files_to_clean)
-
-        response_headers = {
-            "Content-Disposition": f"attachment; filename={output_filename}"
-        }
-
-        # Add Drive upload info to headers if available
-        if drive_upload_result:
-            # Check if it's a successful response (should be a dict with id)
-            if isinstance(drive_upload_result, dict) and "id" in drive_upload_result:
-                response_headers["X-Drive-Upload-Id"] = drive_upload_result.get(
-                    "id", ""
-                )
-                response_headers["X-Drive-Upload-Link"] = drive_upload_result.get(
-                    "webViewLink", ""
-                )
-                response_headers["X-Drive-Upload-Status"] = "success"
-            # If it's an error dict
-            elif (
-                isinstance(drive_upload_result, dict) and "error" in drive_upload_result
-            ):
-                response_headers["X-Drive-Upload-Status"] = "failed"
-                response_headers["X-Drive-Upload-Error"] = drive_upload_result.get(
-                    "error", ""
-                )
 
         return drive_upload_result
 
